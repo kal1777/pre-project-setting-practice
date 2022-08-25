@@ -1,0 +1,112 @@
+plugins {
+	id 'org.springframework.boot' version '2.7.3'
+	id 'io.spring.dependency-management' version '1.0.13.RELEASE'
+	// (1) .adoc 파일 확장자를 가지는 AsciiDoc 문서를 생성해주는 Asciidoctor를 사용하기 위한 플러그인을
+	// 추가
+	id "org.asciidoctor.jvm.convert" version "3.3.2"
+	id 'java'
+}
+
+group = 'com.pre_38'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '11'
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+// (2) ext 변수의 set() 메서드를 이용해서 API 문서 스니핏이 생성될 경로를 지정
+ext {
+	set('snippetsDir', file("build/generated-snippets"))
+}
+
+// (3)  AsciiDoctor에서 사용되는 의존 그룹을 지정
+// (:asciidoctor task가 실행되면 내부적으로 (3)에서 지정한 ‘asciidoctorExtensions’라는 그룹을 지정)
+configurations {
+	asciidoctorExtensions
+}
+
+dependencies {
+	// JPA 설정
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	// 유효성 검사
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// WEB
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	// Security
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	// Devtools(필요없으면 삭제)
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+	compileOnly 'org.projectlombok:lombok'
+	runtimeOnly 'com.h2database:h2'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	// (4) Rest Docs
+	// 추가함으로써 spring-restdocs-core와 spring-restdocs-mockmvc 의존 라이브러리가 추가된다.
+	testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc'
+	// (5) 아래 5줄 추가
+	// spring-restdocs-asciidoctor 의존 라이브러리를 추가합니다.
+	// (3)에서 지정한 asciidoctorExtensions 그룹에 의존 라이브러리가 포함이 됩니다.
+	asciidoctorExtensions 'org.springframework.restdocs:spring-restdocs-asciidoctor'
+	// MapStruct
+	implementation 'org.mapstruct:mapstruct:1.5.1.Final'
+	annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.1.Final'
+	// Email
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
+	// Gson
+	implementation 'com.google.code.gson:gson'
+
+	// JWT 추가
+	implementation 'com.auth0:java-jwt:3.19.2'
+	// OAuth2 추가
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+}
+
+// (6) :test task 실행 시, API 문서 생성 스니핏 디렉토리 경로를 설정
+tasks.named('test') {
+	outputs.dir snippetsDir
+	useJUnitPlatform()
+}
+
+tasks.named('asciidoctor') {
+	// (7) asciidoctor task 실행 시, Asciidoctor 기능을 사용하기 위해
+	// :asciidoctor task에 asciidoctorExtensions 을 설정
+	configurations "asciidoctorExtensions"
+	inputs.dir snippetsDir
+	dependsOn test
+}
+
+// (8) :build task 실행 전에 실행되는 task입니다.
+// :copyDocument task가 수행되면 index.html 파일이 src/main/resources/static/docs 에 copy 되며,
+// copy된 index.html 파일은 API 문서를 파일 형태로 외부에 제공하기 위한 용도로 사용할 수 있습니다.
+task copyDocument(type: Copy) {
+	dependsOn asciidoctor            // (8-1) :asciidoctor task가 실행된 후에 task가 실행 되도록 의존성을 설정
+	from file("${asciidoctor.outputDir}")   // (8-2)  "build/docs/asciidoc/" 경로에 생성되는 index.html을 copy한 후,
+	into file("src/main/resources/static/docs")   // (8-3) "src/main/resources/static/docs" 경로로 index.html을 추가
+}
+
+build {
+	dependsOn copyDocument  // (9) :build task가 실행되기 전에 :copyDocument task가 먼저 수행 되도록 합니다.
+}
+
+// (10) 애플리케이션 실행 파일이 생성하는 :bootJar task 설정
+bootJar {
+	dependsOn copyDocument    // (10-1)
+	// :bootJar task 실행 전에 :copyDocument task가 실행 되도록 의존성을 설정
+	from ("${asciidoctor.outputDir}") {  // (10-2)
+		// Asciidoctor 실행으로 생성되는 index.html 파일을 jar 파일 안에 추가해 줍니다.
+		// jar 파일에 index.html을 추가해 줌으로써 웹 브라우저에서
+		// 접속(http://localhost:8080/docs/index.html) 후, API 문서를 확인할 수 있습니다.
+		into 'static/docs'     // (10-3)
+	}
+}
+
+// (8)에서 copy되는 index.html은 외부에 제공하기 위한 용도이고, (10)에서는 index.html을
+// 애플리케이션 실행 파일인 jar 파일에 포함해서 웹 브라우저에서 API 문서를 확인하기 위한 용도라는 것을 기억하세요.
